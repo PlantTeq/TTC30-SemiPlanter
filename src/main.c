@@ -27,7 +27,7 @@
 #include "Canbus.h"
 #include "Control.h"
 #include "Eeprom.h"
-#include "belt.h"
+
 
 
 #include <stdarg.h>
@@ -48,8 +48,8 @@
 #define NODE_NR         1
 #define CAN_BAUDRATE  250 // kbps
 
-Belt_t belt[NR_ELEMENTS];
-Height_t height[NR_HEIGHT];
+
+
 Planter_t planter;
 CFG_t cfg;
 
@@ -134,8 +134,8 @@ void main (void)
     // initialize the UART with a baudrate of 115200 baud/s
     UART_init(115200);
 
+
     EepromInit();
-    BeltInit();
     CanbusInit();
     ControlInit();
 
@@ -159,20 +159,9 @@ void main (void)
 
         //Set default parameters
         cfg.plantDistance =     0.33;
-        cfg.gripperIdleCof =    1.0;
-        cfg.gripperIdleOffset = 180;
-        cfg.height =			330;
-        cfg.heightDetect = 		100;
-        cfg.waterTime = 		850;
-        cfg.beltStartOffset = 	130;
-        cfg.waterOffset =		250;
-        cfg.autoAdjust=			1;
-        cfg.wheelPerimeter = 	1480; //1640 * 0.9
-        cfg.trip = 				0;
-        cfg.totalPlants =		0;
-        cfg.raiseAmp =			1200;
-        cfg.lowerAmp =			1125;
-        cfg.nrRows = 			4;
+        cfg.wheelPerimeter =    3.0f;
+        cfg.pulsesPerMeter = 	100; //1640 * 0.9
+        cfg.targetAmpStep =     1.0f;
         cfg.checkWord = 		99;
 
         Save();
@@ -180,37 +169,14 @@ void main (void)
     else
     {
     	UART_Printf (IO_UART, "cfg Checkword: %d \r\n", cfg.checkWord);
-    	UART_Printf (IO_UART, "cfg distance: %2f \r\n", cfg.plantDistance);
-    	UART_Printf (IO_UART, "idle cof: %2f \r\n", cfg.gripperIdleCof);
-    	UART_Printf (IO_UART, "idle offset: %u \r\n", cfg.gripperIdleOffset);
-    	UART_Printf (IO_UART, "belt offset: %u \r\n", cfg.beltStartOffset);
-    	UART_Printf (IO_UART, "height: %u \r\n", cfg.height);
-    	UART_Printf (IO_UART, "heightDetect: %u \r\n", cfg.heightDetect);
-    	UART_Printf (IO_UART, "waterTime: %u \r\n", cfg.waterTime);
-    	UART_Printf (IO_UART, "waterOffset: %u \r\n", cfg.waterOffset);
-    	UART_Printf (IO_UART, "wheelPerimeter: %u \r\n", cfg.wheelPerimeter);
-    	UART_Printf (IO_UART, "autoAdjust: %u \r\n", cfg.autoAdjust);
-    	UART_Printf (IO_UART, "trip: %u \r\n", cfg.trip);
-    	UART_Printf (IO_UART, "raiseAmp: %u \r\n", cfg.raiseAmp);
-    	UART_Printf (IO_UART, "lowerAmp: %u \r\n", cfg.lowerAmp);
-    	UART_Printf (IO_UART, "nrRows: %u \r\n", cfg.nrRows);
-    	UART_Printf (IO_UART, "total plants: %u \r\n", cfg.totalPlants);
+    
+
     }
 
 
     SendConfig1();
-    SendConfig2();
-    SendConfig3();
 
-    planter.totalPlants = cfg.totalPlants;
-    planter.trip 		= cfg.trip;
-    planter.firstStartup = 5;
 
-    //Set outputs
-	for(int i = 0; i < (int)(sizeof(belt) / sizeof(*belt)) ; i++)
-	{
-		BeltStop(i);
-	}
 
     while (1)
     {
@@ -224,7 +190,6 @@ void main (void)
 		if (IO_RTC_GetTimeUS(loopTime10ms)>= 10000)
 		{
 			loopTime10ms += 10000;
-			BeltUpdate();
 			ControlUpdate();
 
 
@@ -242,9 +207,8 @@ void main (void)
 		if (IO_RTC_GetTimeUS(loopTime100ms)>= 100000)
 		{
 			loopTime100ms += 100000;
-			if(!planter.spdCanReceived)CalculateSpeed();
 
-			SendCanDebugInfo();
+
 
 
 
@@ -256,8 +220,7 @@ void main (void)
 			loopTime1s += 1000000;
 
 			SendCanInfo();
-			SendCanInfo1();
-			SendCanHeightInfo();
+
 
 
 			if(!planter.estopValue) UART_Printf(IO_UART, "estop active!!\n\r");
