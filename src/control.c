@@ -27,7 +27,11 @@
 
 
 
+#define PLANT_WHEEL_HOLDER_COUNT 4
+#define MIN_PLANT_SPEED 0.025f /* m/s; below this the plant wheel is disabled */
+
 long Map(long x, long in_min, long in_max, long out_min, long out_max);
+float MapF(float x, float in_min, float in_max, float out_min, float out_max);
 bool ADCDataCheck(ubyte2 ADC, ubyte2 lastADC, ubyte2 minADC, ubyte2 maxADC);
 float CalculateWheelSpeed(ubyte2 wheelEncoderCount, ubyte2 pulsesPerMeter);
 static void UpdatePlantWheelControl(void);
@@ -51,11 +55,11 @@ ubyte2 speedAdcCalibrationSamples;
 
 ubyte2 do_voltage_fb;
 bool speedAdcCalibrated;
-ubyte2 maxPlantWheelADC;
-ubyte2 minPlantWheelADC;
 bool dataSPDCheck;
 static ubyte2 previousWheelEncoderCount;
-static ubyte2 previousPlantWheelDeg;
+static ubyte1 wheelSpeedSampleCount;
+static bool wheelSpeedInitialized;
+static float previousPlantWheelDeg;
 static bool plantWheelControlInitialized;
 
 
@@ -77,9 +81,9 @@ void ControlInit(void)
     planter.targetAmp = 150;
 
 
-    maxPlantWheelADC = 2500;
-    minPlantWheelADC = 2500;
 	previousWheelEncoderCount = 0;
+	wheelSpeedSampleCount = 0;
+	wheelSpeedInitialized = FALSE;
 	previousPlantWheelDeg = 0;
 	plantWheelControlInitialized = FALSE;
 
@@ -98,7 +102,7 @@ void ControlInit(void)
 
 
     //initialize spd sensor
-    io_error_control = IO_PWD_CountInit (WheelEncoderPin, IO_PWD_RISING_COUNT, IO_PWD_UP_COUNT, 0, IO_PWD_PD, NULL);
+    io_error_control = IO_PWD_CountInit(WheelEncoderPin, IO_PWD_RISING_COUNT, IO_PWD_UP_COUNT, 0, IO_PWD_PD, NULL);
     if (io_error_control != IO_E_OK) UART_Printf (IO_UART, "IO-init-error enc spd sensor %u \r\n", io_error_control);
 
     //Init plantwheel sensor
@@ -126,8 +130,8 @@ void ControlInit(void)
 	if (io_error_control != IO_E_OK) UART_Printf (IO_UART, "IO-init-error enable sensor %u \r\n", io_error_control);
 
 
-    minTargetAmp = 300;
-    maxTargetAmp = 1000;
+    minTargetAmp = 350;
+    maxTargetAmp = 2000;
 
 
 }
@@ -140,7 +144,7 @@ void ControlUpdate(void)
     dataSPDCheck = FALSE;
 
 	// read ADC status speed sensor
-	io_error_control = IO_ADC_Get(PlantWheelSensorPin, &planter.PlantWheelADC, &planter.PlantWheelADC);
+	io_error_control = IO_ADC_Get(PlantWheelSensorPin, &planter.PlantWheelADC, &planter.PlantWheelADCFresh);
 	if (io_error_control != IO_E_OK) UART_Printf (IO_UART, "IO-ADC-get-error adc sensor spd %u \r\n", io_error_control);
 
 	// read current of PWM output
@@ -157,7 +161,22 @@ void ControlUpdate(void)
 
 	io_error_control = IO_PWD_CountGet (WheelEncoderPin, &planter.wheelEncoderCount,NULL, &planter.wheelEncoderFresh);
 	if (io_error_control != IO_E_OK) UART_Printf (IO_UART, "IO-get-error encoder %u \r\n", io_error_control);
-	planter.speed = CalculateWheelSpeed(planter.wheelEncoderCount, cfg.pulsesPerMeter);
+
+	if (wheelSpeedInitialized == FALSE)
+	{
+		previousWheelEncoderCount = planter.wheelEncoderCount;
+		wheelSpeedSampleCount = 0;
+		wheelSpeedInitialized = TRUE;
+	}
+	else
+	{
+		wheelSpeedSampleCount++;
+		if (wheelSpeedSampleCount >= 10)
+		{
+			planter.speed = CalculateWheelSpeed(planter.wheelEncoderCount, cfg.pulsesPerMeter);
+			wheelSpeedSampleCount = 0;
+		}
+	}
 	
 	if (io_error_control != IO_E_OK)
 	{
@@ -167,40 +186,39 @@ void ControlUpdate(void)
 
 	if(planter.spdCanReceived == FALSE)
 	{
-		if(speedAdcCalibrated == FALSE)
+		if(cfg.speedAdcCalibrationEnabled)
 		{
-			if(planter.PlantWheelADC > maxPlantWheelADC && planter.PlantWheelADC <=5000) maxPlantWheelADC = planter.PlantWheelADC;
-			if(planter.PlantWheelADC < minPlantWheelADC && planter.PlantWheelADC > 0) minPlantWheelADC = planter.PlantWheelADC;
-
-			if(planter.PlantWheelADC > 0 && speedAdcCalibrationSamples < 50)
+			if(speedAdcCalibrated == FALSE)
 			{
-				speedAdcCalibrationSamples++;
-			}
+				if(planter.PlantWheelADC > cfg.maxPlantWheelADC && planter.PlantWheelADC <=5000) cfg.maxPlantWheelADC = planter.PlantWheelADC;
+				if(planter.PlantWheelADC < cfg.minPlantWheelADC && planter.PlantWheelADC > 0) cfg.minPlantWheelADC = planter.PlantWheelADC;
 
-			if(speedAdcCalibrationSamples >= 50 && maxPlantWheelADC > minPlantWheelADC)
-			{
-				speedAdcCalibrated = TRUE;
+				if(planter.PlantWheelADC > 0 && speedAdcCalibrationSamples < 50)
+				{
+					speedAdcCalibrationSamples++;
+				}
+
+				if(speedAdcCalibrationSamples >= 50 && cfg.maxPlantWheelADC > cfg.minPlantWheelADC)
+				{
+					//speedAdcCalibrated = TRUE;
+				}
 			}
 		}
 
-		dataSPDCheck = ADCDataCheck(planter.PlantWheelADC, planter.lastPlantWheelADC, minPlantWheelADC, maxPlantWheelADC);
+		dataSPDCheck = ADCDataCheck(planter.PlantWheelADC, planter.lastPlantWheelADC, cfg.minPlantWheelADC, cfg.maxPlantWheelADC);
 
 		if(dataSPDCheck)
 		{
 			//convert spd ADC to degrees
-			planter.PlantWheelDeg = (ubyte2) Map(planter.PlantWheelADC, minPlantWheelADC,maxPlantWheelADC,0,360);
+			planter.PlantWheelDeg = MapF((float)planter.PlantWheelADC, (float)cfg.minPlantWheelADC,(float)cfg.maxPlantWheelADC,0.0f,360.0f);
 		}
 	}
-
-	UpdatePlantWheelControl();
-
-	
 
 	
     if(planter.estopValue)
     {
 	   //Control Output when estop pin is high	
-	   if(planter.enableValue)
+	   if(planter.enableValue && planter.speed >= MIN_PLANT_SPEED)
 	   {
 		io_error_control = IO_PWM_SetCur(PlantWheelValvePin, (ubyte2) (planter.targetAmp +0.5) , NULL );
 		if (io_error_control != IO_E_OK) UART_Printf (IO_UART, "IO current error %u \r\n", io_error_control);
@@ -224,6 +242,11 @@ void ControlUpdate(void)
 
 }
 
+void ControlUpdatePlantWheel(void)
+{
+	UpdatePlantWheelControl();
+}
+
 float CalculateWheelSpeed(ubyte2 wheelEncoderCount, ubyte2 pulsesPerMeter)
 {
 	ubyte2 pulseDifference;
@@ -237,13 +260,18 @@ float CalculateWheelSpeed(ubyte2 wheelEncoderCount, ubyte2 pulsesPerMeter)
 	pulseDifference = (ubyte2)(wheelEncoderCount - previousWheelEncoderCount);
 	previousWheelEncoderCount = wheelEncoderCount;
 
-	return ((float)pulseDifference / (float)pulsesPerMeter) / 0.01f;
+	return ((float)pulseDifference / (float)pulsesPerMeter) / 0.1f;
 }
 
 static void UpdatePlantWheelControl(void)
 {
-	float measuredAngleDelta;
-	float targetAngleDelta;
+	float holderSpacing;
+	float speedUpRatio;
+
+	if (planter.enableValue == FALSE || planter.speed < MIN_PLANT_SPEED)
+	{
+		return;
+	}
 
 	if (plantWheelControlInitialized == FALSE)
 	{
@@ -252,26 +280,32 @@ static void UpdatePlantWheelControl(void)
 		return;
 	}
 
-	measuredAngleDelta = (float)planter.PlantWheelDeg - (float)previousPlantWheelDeg;
+	planter.measuredAngleDelta = planter.PlantWheelDeg - previousPlantWheelDeg;
 	previousPlantWheelDeg = planter.PlantWheelDeg;
 
-	if (measuredAngleDelta > 180.0f) measuredAngleDelta -= 360.0f;
-	if (measuredAngleDelta < -180.0f) measuredAngleDelta += 360.0f;
+	if (planter.measuredAngleDelta > 180.0f) planter.measuredAngleDelta -= 360.0f;
+	if (planter.measuredAngleDelta < -180.0f) planter.measuredAngleDelta += 360.0f;
 
-	if (cfg.wheelPerimeter <= 0.0f || cfg.targetAmpStep <= 0.0f)
+	if (cfg.plantWheelPerimeter <= 0.0f || cfg.plantDistance <= 0.0f || cfg.targetAmpStep <= 0.0f)
 	{
 		return;
 	}
 
-	targetAngleDelta = (planter.speed / cfg.wheelPerimeter) * 360.0f * 0.01f;
+	// holder spacing on the wheel (perimeter/holders) vs desired plant spacing sets how much faster the wheel must spin than 1:1 ground-driven
+	holderSpacing = cfg.plantWheelPerimeter / PLANT_WHEEL_HOLDER_COUNT;
+	speedUpRatio = holderSpacing / cfg.plantDistance;
 
-	if (measuredAngleDelta < targetAngleDelta)
+	// loop runs every 100ms (dt = 0.1s); natural 1:1 ground-driven rate scaled by speedUpRatio
+	planter.targetAngleDelta = (planter.speed / cfg.plantWheelPerimeter) * 360.0f * speedUpRatio * 0.1f;
+
 	{
-		planter.targetAmp += cfg.targetAmpStep;
-	}
-	else if (measuredAngleDelta > targetAngleDelta)
-	{
-		planter.targetAmp -= cfg.targetAmpStep;
+		float error = planter.targetAngleDelta - planter.measuredAngleDelta;
+		float deadband = 0.05f; /* degrees; ignore noise-level errors to avoid hunting */
+
+		if (error > deadband || error < -deadband)
+		{
+			planter.targetAmp += error * cfg.targetAmpStep;
+		}
 	}
 
 	if (planter.targetAmp > (float)maxTargetAmp) planter.targetAmp = (float)maxTargetAmp;
@@ -282,12 +316,12 @@ bool ADCDataCheck(ubyte2 ADC, ubyte2 lastADC, ubyte2 minADC, ubyte2 maxADC)
 {
 	bool dataCheck = FALSE;
 
-	if(ADC <= (lastADC + 300) && ((lastADC + 300) < maxADC) && (ADC > lastADC))
+	if(ADC <= (lastADC + 10) && ((lastADC + 10) < maxADC) && (ADC > lastADC))
 	{
 		dataCheck = TRUE;
 	}
 
-	if((lastADC + 300) > maxADC)
+	if((lastADC + 10) > maxADC)
 	{
 		if(ADC > lastADC && ADC < maxADC)
 		{
@@ -306,6 +340,18 @@ bool ADCDataCheck(ubyte2 ADC, ubyte2 lastADC, ubyte2 minADC, ubyte2 maxADC)
 long Map(long x, long in_min, long in_max, long out_min, long out_max)
 {
     long temp_x = (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
+
+    // limit to range
+
+    if(temp_x<out_min) temp_x = out_min;
+    if(temp_x>out_max) temp_x = out_max;
+
+    return temp_x;
+}
+
+float MapF(float x, float in_min, float in_max, float out_min, float out_max)
+{
+    float temp_x = (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
 
     // limit to range
 

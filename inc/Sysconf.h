@@ -16,8 +16,8 @@
 #define UART_BUFSIZE  256
 
 
-//#define	DEBUG
-//#define AUTOMATICUP
+#define	DEBUGMAIN
+
 
 #define USE_PARAM_FOR_EXTENDED_CAN 1
 #define NR_OF_CAN 1
@@ -37,11 +37,14 @@ typedef struct {
     ubyte2		PlantWheelADC;
     ubyte2		lastPlantWheelADC;
     bool 		PlantWheelADCFresh;
-    ubyte2      PlantWheelDeg;
+    float       PlantWheelDeg;
     bool        spdCanReceived;
 
     ubyte2      wheelEncoderCount;
     bool        wheelEncoderFresh;
+
+    float		measuredAngleDelta;
+    float       targetAngleDelta;
 
     
 
@@ -52,10 +55,14 @@ extern Planter_t planter;
 
 typedef struct {
     float	plantDistance;
-    float	wheelPerimeter;
+    float	plantWheelPerimeter;
 
     ubyte2	pulsesPerMeter;
     float	targetAmpStep;
+
+    ubyte2	minPlantWheelADC;
+    ubyte2	maxPlantWheelADC;
+    bool	speedAdcCalibrationEnabled;
 
     ubyte2	checkWord;
 
@@ -70,7 +77,7 @@ extern CFG_t cfg;
 #define EstopPin            IO_PIN_F4 	
 #define EnablePin           IO_PIN_G4 		
 #define PlantWheelSensorPin IO_PIN_E4
-#define WheelEncoderPin     IO_PIN_E4		
+#define WheelEncoderPin     IO_PWD_01	//PIN E3
 
 
 #define PlantWheelValvePin  IO_PIN_H1

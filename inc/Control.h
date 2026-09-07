@@ -15,6 +15,9 @@ void ControlInit (void);
 
 void ControlUpdate (void);
 
+void ControlUpdatePlantWheel (void);
+
+
 
 
 

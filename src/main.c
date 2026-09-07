@@ -152,22 +152,26 @@ void main (void)
 
     // read eeprom
     EepromRead (0, sizeof (cfg), FALSE, (ubyte1 *) &cfg);
-    //cfg.checkWord = 0;
+    cfg.checkWord = 0;
     if(cfg.checkWord != 99 )
     {
     	UART_Printf (IO_UART, "Restore configuration \n\r");
 
         //Set default parameters
-        cfg.plantDistance =     0.33;
-        cfg.wheelPerimeter =    3.0f;
-        cfg.pulsesPerMeter = 	100; //1640 * 0.9
-        cfg.targetAmpStep =     1.0f;
+        cfg.plantDistance =     0.6;
+        cfg.plantWheelPerimeter =  3.0f;
+        cfg.pulsesPerMeter = 	1100;
+        cfg.targetAmpStep =     5.0f;
+        cfg.minPlantWheelADC =  489;
+        cfg.maxPlantWheelADC =  4432;
+        cfg.speedAdcCalibrationEnabled = TRUE;
         cfg.checkWord = 		99;
 
         Save();
     }
     else
     {
+    	UART_Printf (IO_UART, "cfg pulsesPerMeter: %d \r\n", cfg.pulsesPerMeter);
     	UART_Printf (IO_UART, "cfg Checkword: %d \r\n", cfg.checkWord);
     
 
@@ -193,21 +197,30 @@ void main (void)
 			ControlUpdate();
 
 
-#ifdef DEBUGMAIN
-                    UART_Printf(IO_UART, "G2:%.2f  G1:%.2f  TargetAmp:%.2f  TargetAmp2:%.2f  MVar:%.2f\r\n",
-					planter.gripperDeg2,
-					planter.gripperDeg,
-                    planter.targetAmp,
-                    planter.targetAmp2,
-                    planter.tempmeasurevar);
-#endif
+
 		}
 
 		// 100ms run loop
 		if (IO_RTC_GetTimeUS(loopTime100ms)>= 100000)
 		{
 			loopTime100ms += 100000;
-
+            ControlUpdatePlantWheel();
+            
+#ifdef DEBUGMAIN
+                    UART_Printf(IO_UART, "e2:%d  e1:%d  amp:%.2f  enc:%d  spd:%.2f	pltdeg:%.2f, pltadc:%d, mDelta:%.2f, tDelta:%.2f, max:%d, min:%d\r\n",
+					planter.estopValue,
+					planter.enableValue,
+                    planter.targetAmp,
+                    planter.wheelEncoderCount,
+                    planter.speed,
+                    planter.PlantWheelDeg,
+                    planter.PlantWheelADC,
+                    planter.measuredAngleDelta,
+                    planter.targetAngleDelta,
+                    cfg.maxPlantWheelADC,
+                    cfg.minPlantWheelADC
+                    );
+#endif
 
 
 
