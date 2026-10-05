@@ -286,14 +286,14 @@ static void UpdatePlantWheelControl(void)
 	if (planter.measuredAngleDelta > 180.0f) planter.measuredAngleDelta -= 360.0f;
 	if (planter.measuredAngleDelta < -180.0f) planter.measuredAngleDelta += 360.0f;
 
-	if (cfg.plantWheelPerimeter <= 0.0f || cfg.plantDistance <= 0.0f || cfg.targetAmpStep <= 0.0f)
+	if (cfg.plantWheelPerimeter <= 0.0f || cfg.plantDistance <= 0.0f || cfg.plantDistanceCalibration <= 0.0f || cfg.targetAmpStep <= 0.0f)
 	{
 		return;
 	}
 
 	// holder spacing on the wheel (perimeter/holders) vs desired plant spacing sets how much faster the wheel must spin than 1:1 ground-driven
 	holderSpacing = cfg.plantWheelPerimeter / PLANT_WHEEL_HOLDER_COUNT;
-	speedUpRatio = holderSpacing / cfg.plantDistance;
+	speedUpRatio = holderSpacing / (cfg.plantDistance * cfg.plantDistanceCalibration);
 
 	// loop runs every 100ms (dt = 0.1s); natural 1:1 ground-driven rate scaled by speedUpRatio
 	planter.targetAngleDelta = (planter.speed / cfg.plantWheelPerimeter) * 360.0f * speedUpRatio * 0.1f;

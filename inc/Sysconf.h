@@ -55,6 +55,7 @@ extern Planter_t planter;
 
 typedef struct {
     float	plantDistance;
+    float	plantDistanceCalibration; /* corrects systematic error between commanded and actual plant spacing */
     float	plantWheelPerimeter;
 
     ubyte2	pulsesPerMeter;

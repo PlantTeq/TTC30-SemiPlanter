@@ -158,7 +158,9 @@ void main (void)
     	UART_Printf (IO_UART, "Restore configuration \n\r");
 
         //Set default parameters
-        cfg.plantDistance =     0.6;
+        cfg.plantDistance =     0.6f;
+        // field calibration: 0.6m setting produced 0.55m actual spacing, factor = 0.6/0.55
+        cfg.plantDistanceCalibration = 1.0909f;
         cfg.plantWheelPerimeter =  3.0f;
         cfg.pulsesPerMeter = 	1100;
         cfg.targetAmpStep =     5.0f;
