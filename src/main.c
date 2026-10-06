@@ -27,6 +27,9 @@
 #include "Canbus.h"
 #include "Control.h"
 #include "Eeprom.h"
+#include "Params.h"
+
+#define CFG_VERSION 100
 
 
 
@@ -152,13 +155,12 @@ void main (void)
 
     // read eeprom
     EepromRead (0, sizeof (cfg), FALSE, (ubyte1 *) &cfg);
-    cfg.checkWord = 0;
-    if(cfg.checkWord != 99 )
+    if(cfg.checkWord != CFG_VERSION )
     {
     	UART_Printf (IO_UART, "Restore configuration \n\r");
 
         //Set default parameters
-        cfg.plantDistance =     0.6f;
+        ParamsLoadDefaults();
         // field calibration: 0.6m setting produced 0.55m actual spacing, factor = 0.6/0.55
         cfg.plantDistanceCalibration = 1.0909f;
         cfg.plantWheelPerimeter =  3.0f;
@@ -167,12 +169,15 @@ void main (void)
         cfg.minPlantWheelADC =  489;
         cfg.maxPlantWheelADC =  4432;
         cfg.speedAdcCalibrationEnabled = TRUE;
-        cfg.checkWord = 		99;
+        cfg.checkWord = 		CFG_VERSION;
 
+        ParamsApply();
         Save();
     }
     else
     {
+        ParamsValidate();
+        ParamsApply();
     	UART_Printf (IO_UART, "cfg pulsesPerMeter: %d \r\n", cfg.pulsesPerMeter);
     	UART_Printf (IO_UART, "cfg Checkword: %d \r\n", cfg.checkWord);
     
@@ -207,6 +212,9 @@ void main (void)
 		{
 			loopTime100ms += 100000;
             ControlUpdatePlantWheel();
+            SendCanSpeed();
+            SendCanPlantWheelSpeed();
+            CanProcessRx();
             
 #ifdef DEBUGMAIN
                     UART_Printf(IO_UART, "e2:%d  e1:%d  amp:%.2f  enc:%d  spd:%.2f	pltdeg:%.2f, pltadc:%d, mDelta:%.2f, tDelta:%.2f, max:%d, min:%d\r\n",
@@ -235,6 +243,13 @@ void main (void)
 			loopTime1s += 1000000;
 
 			SendCanInfo();
+
+			// Schrijven blokkeert, daarom hier en niet in de CAN-handler
+			if (ParamsSavePending)
+			{
+				ParamsSavePending = FALSE;
+				Save();
+			}
 
 
 

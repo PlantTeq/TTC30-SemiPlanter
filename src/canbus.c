@@ -13,9 +13,11 @@
 #include "CanHandler.h"
 
 #include "eeprom.h"
+#include "params.h"
 #include "stddefs.h"
 
 
+#include "can_messages.h"
 #include "ApdbCfg.h"
 #include "IO_CAN.h"
 
@@ -29,6 +31,8 @@ static IO_ErrorType can_init_rc;
 
 
 float speedDegCAN;
+
+static volatile bool SpacingConfigPending = FALSE;
 
 
 #define PGN_REQUEST_CONFIG1	0x00B00102L
@@ -100,9 +104,71 @@ void handleCanRx(UI08_t bCanNum, CanFrame_t* pFrame)
 
 			break;
 
+		default:
+			// Alle protocolberichten worden gedecodeerd naar CanMsgs; verwerking gebeurt in de hoofdlus
+			CanMessages_Receive(can_frame.id, pFrame->extended != 0, can_frame.data, can_frame.length);
+			break;
+
 		}
 
 	}
+}
+
+// Verwerkt ontvangen protocolberichten en beantwoordt configverzoeken. Wordt vanuit de
+// hoofdlus aangeroepen, zodat er niet vanuit de ontvangsthandler gezonden wordt.
+void CanProcessRx(void)
+{
+	MsgPlantSpacingConfig_t spacingMsg;
+	const Param_t *Param;
+
+	if (CanMsgs.PlantSpacingCommand.Updated)
+	{
+		CanMsgs.PlantSpacingCommand.Updated = false;
+		// De controller toetst zelf aan min/max, ook als het display dat al deed
+		if (!ParamsSet(CONFIGGROUP_PLANTSPACING, CanMsgs.PlantSpacingCommand.Data.PlantSpacingSetpoint))
+		{
+			UART_Printf (IO_UART, "plant spacing rejected: %u\r\n", CanMsgs.PlantSpacingCommand.Data.PlantSpacingSetpoint);
+		}
+		SpacingConfigPending = TRUE;
+	}
+
+	if (CanMsgs.ConfigRequest.Updated)
+	{
+		CanMsgs.ConfigRequest.Updated = false;
+		if (CanMsgs.ConfigRequest.Data.ConfigGroup == CONFIGGROUP_ALL ||
+			CanMsgs.ConfigRequest.Data.ConfigGroup == CONFIGGROUP_PLANTSPACING)
+		{
+			SpacingConfigPending = TRUE;
+		}
+	}
+
+	if (!SpacingConfigPending)
+	{
+		return;
+	}
+	SpacingConfigPending = FALSE;
+
+	Param = ParamsFind(CONFIGGROUP_PLANTSPACING);
+	spacingMsg.PlantSpacingCurrent = *Param->Value;
+	spacingMsg.PlantSpacingDefault = Param->Default;
+	spacingMsg.PlantSpacingMin = Param->Min;
+	spacingMsg.PlantSpacingMax = Param->Max;
+	MsgPlantSpacingConfig_send(&spacingMsg);
+}
+
+// Enige platformspecifieke koppeling van can_messages: een frame op bus 0 versturen.
+bool CanMessages_Transmit(uint32_t id, bool extended, const uint8_t *data, uint8_t dlc)
+{
+	CanFrame_t can_tx_frame;
+
+	memset(&can_tx_frame, 0, sizeof(can_tx_frame));
+	memcpy(can_tx_frame.data, data, dlc);
+	can_tx_frame.extended = extended ? IO_CAN_EXT_FRAME : IO_CAN_STD_FRAME;
+	can_tx_frame.length = dlc;
+	can_tx_frame.id = id;
+
+	CanTxFrame(0, &can_tx_frame);
+	return true;
 }
 
 void SendCanInfo(void)
@@ -123,6 +189,52 @@ void SendCanInfo(void)
 
 
 
+
+// Stuurt de actuele snelheid (planter.speed in m/s) als mm/s naar het display.
+void SendCanSpeed(void)
+{
+	MsgSpeedStatus_t speedMsg;
+
+	speedMsg.SpeedActual = (int32_t)(planter.speed * 1000.0f);
+	MsgSpeedStatus_send(&speedMsg);
+}
+
+// Stuurt het toerental van het plantwiel (RPM, afgeleid uit de hoeksensor op
+// PlantWheelSensorPin). Moet elke 100 ms worden aangeroepen.
+void SendCanPlantWheelSpeed(void)
+{
+	static float previousDeg = 0.0f;
+	static bool initialized = FALSE;
+
+	MsgPlantWheelSpeed_t wheelMsg;
+	float currentDeg;
+	float deltaDeg;
+
+	// Direct uit de ADC: planter.PlantWheelDeg wordt door ADCDataCheck gefilterd
+	// en blijft daardoor stil bij stilstand of draaien in omgekeerde richting.
+	if (cfg.maxPlantWheelADC <= cfg.minPlantWheelADC)
+	{
+		return;
+	}
+	currentDeg = MapF((float)planter.PlantWheelADC, (float)cfg.minPlantWheelADC, (float)cfg.maxPlantWheelADC, 0.0f, 360.0f);
+
+	deltaDeg = currentDeg - previousDeg;
+	previousDeg = currentDeg;
+	if (initialized == FALSE)
+	{
+		initialized = TRUE;
+		return;
+	}
+
+	// De hoek loopt rond bij 360 graden; neem de kortste weg.
+	if (deltaDeg > 180.0f) deltaDeg -= 360.0f;
+	if (deltaDeg < -180.0f) deltaDeg += 360.0f;
+	if (deltaDeg < 0.0f) deltaDeg = -deltaDeg;
+
+	// graden per 100 ms -> omwentelingen per minuut
+	wheelMsg.PlantwheelSpeed = deltaDeg / 360.0f * 600.0f;
+	MsgPlantWheelSpeed_send(&wheelMsg);
+}
 
 void SendConfig1(void)
 {

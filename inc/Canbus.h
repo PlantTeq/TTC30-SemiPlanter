@@ -12,6 +12,10 @@ void CanbusInit(void);
 
 void SendCanInfo(void);
 
+void SendCanSpeed(void);
+void SendCanPlantWheelSpeed(void);
+void CanProcessRx(void);
+
 void SendConfig1(void);
 
 

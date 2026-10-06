@@ -65,7 +65,9 @@ typedef struct {
     ubyte2	maxPlantWheelADC;
     bool	speedAdcCalibrationEnabled;
 
-    ubyte2	checkWord;
+    ubyte2	plantSpacingMm; /* instelling via display, plantDistance wordt hiervan afgeleid */
+
+    ubyte2	checkWord; /* versienummer van de opslag, ophogen bij wijziging van CFG_t */
 
 
 }CFG_t;
